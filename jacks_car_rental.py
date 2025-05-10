@@ -4,7 +4,18 @@ This is an implementation of the 'Jacks Car Rental' excercise from the
 """
 import numpy as np
 import matplotlib.pyplot as plt
+import ctypes
 from scipy.stats import skellam, poisson
+
+# three argument p gets evaluated a bunch so we put in c code
+_p3 = ctypes.CDLL('./libp3.so')
+_p3.c_prime_given_c.argtypes = (ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int)
+_p3.c_prime_given_c.restype = ctypes.c_double
+
+def _acc_c_prime_given_c(c_prime, c, mean_requests, mean_returns, MAX):
+    global _p3
+    result = _p3.c_prime_given_c(ctypes.c_int(c_prime), ctypes.c_int(c), ctypes.c_int(mean_requests), ctypes.c_int(mean_returns), ctypes.c_int(MAX))
+    return result
 
 # some parameters to control the problem setting
 MAX_CARS = 20
@@ -15,31 +26,10 @@ COST_OF_MOVING = -2
 PROFIT_FROM_RENTING = 10
 
 # some parameters to control policy iteration
-EVALUATION_TOLERANCE = 1
+EVALUATION_TOLERANCE = 1e-5
 ITERATION_STEPS = 20
 DISCOUNT = 0.9
 
-def b_given_c(b, c, mean_requests):
-    if b == 0:
-        if c == 0:
-            return 1
-        return 1 - poisson._cdf(c - 1, mean_requests)
-    else:
-        return poisson._pdf(c - b, mean_requests)
-
-def c_prime_given_b(c_prime, b, mean_returns):
-    if c_prime == MAX_CARS:
-        if (c_prime - b) == 0:
-            return 1
-        return 1 - poisson._cdf(c_prime - b - 1, mean_returns)
-    else:
-        return poisson._pdf(c_prime - b, mean_returns)
-
-def c_prime_given_c(c_prime, c, mean_requests, mean_returns):
-    s = 0
-    for b in range(c+1): # after requests, at most c cars can be left
-        s += c_prime_given_b(c_prime, b, mean_returns) * b_given_c(b, c, mean_requests)
-    return s
 
 """
 Helper function for the 3-argument p; Computes the state transition
@@ -55,24 +45,8 @@ returns:
   probability of this occuring
 """
 def partial_p(request_mean: int, return_mean: int, new_state: int, old_state_after_action: int):
-    # the difference in cars that must occur through business if the new
-    # state is to be reached
-    difference = new_state - old_state_after_action
-    if new_state == MAX_CARS:
-        # Pr(change >= difference)
-        # = 1 - Pr(change < difference)
-        # = 1 - Pr(change <= difference - 1)
-        # it's ok if more cars are returned than capacity, the same state is reached
-        return 1 - skellam._cdf(difference-1, return_mean, request_mean)
-    elif new_state == 0:
-        # Pr(change <= difference)
-        # if more rental requests are made, the new state is also 0
-        return skellam._cdf(difference, return_mean, request_mean)
-    else:
-        # Pr(change = difference)
-        return skellam._pmf(difference, return_mean, request_mean)
+    return _acc_c_prime_given_c(new_state, old_state_after_action, request_mean, return_mean, MAX_CARS)
 
-    
 """
 three-argument p
 parameters:
@@ -174,7 +148,6 @@ for on_iteration in range(ITERATION_STEPS):
                 new_v_temp += p(s_prime, s, policy[s]) * value[s_prime] * DISCOUNT
             value[s] = new_v_temp
             delta = max(delta, abs(v - value[s]))
-        print(value[(1,0)], value[(0,1)])
         print(f"Evaluation Step: delta = {delta}")
         if delta < EVALUATION_TOLERANCE:
             break
@@ -206,10 +179,10 @@ for on_iteration in range(ITERATION_STEPS):
         arr2[s[0], s[1]] = value[s]
     plt.matshow(arr[::-1,:], cmap="hsv")
     plt.colorbar()
-    plt.show()
+    plt.savefig(f"Policy_Figure_{on_iteration}")
     plt.matshow(arr2[::-1,:], cmap="viridis")
     plt.colorbar()
-    plt.show()
+    plt.savefig(f"Value_Figure_{on_iteration}")
 
     
     if policy_stable:
