@@ -5,7 +5,7 @@ The core of the three-argument p is implemented in C as it would otherwise take 
 
 # Setup
 ```bash
-pip install matplotlib
+pip install matplotlib scipy numpy
 cc -fPIC -shared -O3 -o libp3.so p3arg.c
 python jacks_car_rental.py
 ```
